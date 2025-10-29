@@ -15,9 +15,11 @@ public class ResumeDetailDTO {
     private String storageKey;
     private String extractedText;          // PDF → 텍스트
     private CandidateInfoDTO candidate;    // 지원자 정보
-    private List<HighlightSpanDTO> highlights; // 키워드 매칭 위치 (있으면)
+    private Object matchedKeywords;
     private Integer totalScore;            // 점수 모듈 계산 결과 (없으면 null)
     private String grade;                  // 등급 (없으면 null)
+    private String summaryComment;
+
     private LocalDateTime uploadedAt;
 }
 /*

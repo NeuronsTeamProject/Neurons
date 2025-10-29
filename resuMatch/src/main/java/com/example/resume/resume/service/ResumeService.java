@@ -1,12 +1,8 @@
 package com.example.resume.resume.service;
 
 import com.example.resume.resume.dto.*;
-import com.example.resume.resume.entity.CandidateInfo;
-import com.example.resume.resume.entity.HighlightSpan;
-import com.example.resume.resume.entity.Resume;
-import com.example.resume.resume.repository.CandidateInfoRepository;
-import com.example.resume.resume.repository.HighlightSpanRepository;
-import com.example.resume.resume.repository.ResumeRepository;
+import com.example.resume.resume.entity.*;
+import com.example.resume.resume.repository.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -14,7 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -22,30 +19,26 @@ public class ResumeService {
 
     private final ResumeRepository resumeRepository;
     private final CandidateInfoRepository candidateInfoRepository;
-    private final HighlightSpanRepository highlightSpanRepository;
+    private final MatchedKeywordRepository matchedKeywordRepository;
     private final PdfService pdfService;
     private final StorageService storageService;
 
     public ResumeService(ResumeRepository resumeRepository,
                          CandidateInfoRepository candidateInfoRepository,
-                         HighlightSpanRepository highlightSpanRepository,
+                         MatchedKeywordRepository matchedKeywordRepository,
                          PdfService pdfService,
                          StorageService storageService) {
         this.resumeRepository = resumeRepository;
         this.candidateInfoRepository = candidateInfoRepository;
-        this.highlightSpanRepository = highlightSpanRepository;
+        this.matchedKeywordRepository = matchedKeywordRepository;
         this.pdfService = pdfService;
         this.storageService = storageService;
     }
 
     public ResumeUploadResponse upload(MultipartFile file, ResumeUploadRequest request) {
-        // 1) 파일 저장
         String storageKey = storageService.store(file);
+        String text = pdfService.extractText(getStream(file));
 
-        // 2) 텍스트 추출
-        String text = pdfService.extractText(toInputStream(file));
-
-        // 3) Resume 저장
         Resume resume = Resume.builder()
                 .displayName(request.getDisplayName())
                 .originalFileName(file.getOriginalFilename())
@@ -55,13 +48,13 @@ public class ResumeService {
                 .build();
         resumeRepository.save(resume);
 
-        // 4) 후보자 기본정보가 있으면 저장
         if (hasCandidateInfo(request)) {
             CandidateInfo ci = CandidateInfo.builder()
                     .name(request.getCandidateName())
                     .phone(request.getPhone())
                     .address(request.getAddress())
                     .school(request.getSchool())
+                    .jobRole(request.getJobRole()) // ◀ 저장
                     .resume(resume)
                     .build();
             candidateInfoRepository.save(ci);
@@ -77,6 +70,7 @@ public class ResumeService {
                 .map(r -> new ResumeListItemDTO(
                         r.getId(),
                         r.getDisplayName(),
+                        r.getCandidateInfo() != null ? r.getCandidateInfo().getJobRole() : null,
                         r.getTotalScore(),
                         r.getGrade()
                 ));
@@ -87,20 +81,22 @@ public class ResumeService {
         Resume r = resumeRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Resume not found: " + id));
 
-        List<HighlightSpan> spans = highlightSpanRepository.findByResume(r);
+        CandidateInfoDTO candidate = (r.getCandidateInfo() == null) ? null :
+                new CandidateInfoDTO(
+                        r.getCandidateInfo().getName(),
+                        r.getCandidateInfo().getPhone(),
+                        r.getCandidateInfo().getAddress(),
+                        r.getCandidateInfo().getSchool(),
+                        r.getCandidateInfo().getJobRole()
+                );
 
-        CandidateInfoDTO candidate = (r.getCandidateInfo() == null)
-                ? null
-                : new CandidateInfoDTO(
-                r.getCandidateInfo().getName(),
-                r.getCandidateInfo().getPhone(),
-                r.getCandidateInfo().getAddress(),
-                r.getCandidateInfo().getSchool()
-        );
-
-        List<HighlightSpanDTO> highlightDTOs = spans.stream()
-                .map(s -> new HighlightSpanDTO(s.getSection(), s.getStartOffset(), s.getEndOffset(), s.getTag()))
-                .toList();
+        // 키워드 카테고리별 그룹핑
+        Map<String, List<String>> keywords = matchedKeywordRepository.findByResumeId(id)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        MatchedKeyword::getCategory,
+                        Collectors.mapping(MatchedKeyword::getTag, Collectors.toList())
+                ));
 
         return new ResumeDetailDTO(
                 r.getId(),
@@ -109,33 +105,25 @@ public class ResumeService {
                 r.getStorageKey(),
                 r.getExtractedText(),
                 candidate,
-                highlightDTOs,
+                keywords,
                 r.getTotalScore(),
                 r.getGrade(),
+                r.getSummaryComment(), // ◀ 총평
                 r.getUploadedAt()
         );
     }
 
-    // ---- helpers ----
-
-    private java.io.InputStream toInputStream(MultipartFile file) {
-        try { return file.getInputStream(); }
+    // helpers
+    private java.io.InputStream getStream(MultipartFile f) {
+        try { return f.getInputStream(); }
         catch (Exception e) { throw new IllegalStateException("파일 스트림 생성 실패", e); }
     }
-
     private boolean hasCandidateInfo(ResumeUploadRequest req) {
-        return (req.getCandidateName() != null && !req.getCandidateName().isBlank())
-                || (req.getPhone() != null && !req.getPhone().isBlank())
-                || (req.getAddress() != null && !req.getAddress().isBlank())
-                || (req.getSchool() != null && !req.getSchool().isBlank());
+        return notBlank(req.getCandidateName()) ||
+                notBlank(req.getPhone()) ||
+                notBlank(req.getAddress()) ||
+                notBlank(req.getSchool()) ||
+                notBlank(req.getJobRole());
     }
+    private boolean notBlank(String s){ return s != null && !s.isBlank(); }
 }
-/*
-역할: 업로드/목록/상세 “전체 흐름”을 담당.
-
-upload(file, request): (1) 파일 저장(StorageService) → (2) 텍스트 추출(PdfService) → (3) Resume 생성/저장 → (4) CandidateInfo 저장(옵션) → (5) 업로드 결과 반환.
-
-list(pageable): Resume 페이지 조회 → ResumeListItemDTO로 매핑.
-
-detail(id): Resume + HighlightSpan 조회 → ResumeDetailDTO 조립.
-어디서: 컨트롤러가 모든 엔드포인트에서 이 서비스를 호출.*/

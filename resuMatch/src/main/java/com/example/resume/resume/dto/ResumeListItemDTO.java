@@ -8,6 +8,7 @@ import lombok.Data;
 public class ResumeListItemDTO {
     private Long id;
     private String displayName;   // 좌측 패널에 보일 이름
+    private String jobRole;
     private Integer totalScore;   // 아직 점수 전이면 null
     private String grade;         // 등급(예: A/B/C) — 점수 계산 전이면 null
 }
