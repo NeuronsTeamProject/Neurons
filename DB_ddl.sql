@@ -1,0 +1,19 @@
+CREATE DATABASE IF NOT EXISTS `resume`
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_0900_ai_ci;
+
+USE `resume`;
+
+DROP TABLE IF EXISTS `char_info`;
+
+CREATE TABLE `char_info` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `pdf_name` VARCHAR(45) NOT NULL,
+  `pdf` LONGBLOB NOT NULL,
+  `score` INT DEFAULT NULL,
+  `keyword` VARCHAR(255) DEFAULT NULL,
+  `ai_summary` VARCHAR(300) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB 
+  DEFAULT CHARSET=utf8mb4 
+  COLLATE=utf8mb4_0900_ai_ci;
