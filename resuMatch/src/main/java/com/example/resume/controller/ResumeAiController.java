@@ -31,4 +31,5 @@ public class ResumeAiController {
     public ResumeResponseDTO getOne(@PathVariable Integer id) {
         return service.getOne(id);
     }
+
 }
