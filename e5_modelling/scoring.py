@@ -13,6 +13,7 @@ from config import (
     KEYWORD_GATES,
     THRESHOLD_SECTION,
     THRESHOLD_KEYWORD,
+    JOB_ROLE_MAP
 )
 from embedding import embed_text, e5_query, e5_passage
 
@@ -122,9 +123,17 @@ def score_section_cert(sentences, section_name, awarded_keywords_global):
     return section_total_score, match_log
 
 
-
+# [프론트로부터 파일 받아와서 분석 시작하는 로직]
 # B. 일반 섹션 점수 계산 (의미 유사도 기반)
-def score_section_semantic(sentences, section_name, awarded_keywords_global):
+def score_section_semantic(sentences, section_name, awarded_keywords_global,job_role: str):
+    
+    # ---- 0) 직무에 따라 사용할 키워드 선택 ----
+    # job_role: "backend", "프론트엔드" 같은 값이 들어와도 되도록 매핑
+    internal_role = JOB_ROLE_MAP.get(job_role, job_role)  # 이미 "BACKEND" 등이면 그대로 사용
+    role_kw_data = technical_keywords.get(internal_role)
+    if role_kw_data is None:
+        raise ValueError(f"지원하지 않는 직무입니다: {job_role}")
+    
     # 1) 의미 없는 문장 제거
     filtered_sentences = [s for s in sentences if is_informative_sentence(s)]
 
@@ -141,14 +150,13 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global):
 
     canonical_keywords, template_texts,template_owner = [], [], []      
 
-    for _, kw_data in technical_keywords.items():
-        for kw in kw_data.keys():
-            # 해당 키워드에 등록된 템플릿이 있으면 사용, 없으면 키워드 자체를 문장화
-            templates = KEYWORD_TEMPLATES.get(kw, [f"{kw}와 관련된 경험이 있다"])
-            for t in templates:
-                canonical_keywords.append(kw)
-                template_texts.append(e5_query(t))
-                template_owner.append(kw)
+    for kw in role_kw_data.keys():
+        # 해당 키워드에 등록된 템플릿이 있으면 사용, 없으면 키워드 자체를 문장화
+        templates = KEYWORD_TEMPLATES.get(kw, [f"{kw}와 관련된 경험이 있다"])
+        for t in templates:
+            canonical_keywords.append(kw)
+            template_texts.append(e5_query(t))
+            template_owner.append(kw)
 
     template_emb = embed_text(template_texts)  # [num_templates, dim]
 
@@ -187,11 +195,8 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global):
         # ⑥ 임계값 통과 + 중복 방지 후 점수 부여
         if best_sim >= THRESHOLD_KEYWORD and best_kw not in awarded_keywords_global:
             # 점수표에서 스코어 가져오기 (첫 카테고리에서 찾음)
-            kw_score = None
-            for _, kw_data in  technical_keywords.items():
-                if best_kw in kw_data:
-                    kw_score = kw_data[best_kw]
-                    break
+            kw_score = role_kw_data.get(best_kw) # 선택한 직무 키워드 딕셔너리만 보도록 변경
+
             if kw_score is None:
                 continue
 
@@ -205,5 +210,15 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global):
                 "score": kw_score,
                 "used_template": template_texts[best_template_idx],  # 디버깅/설명용
             })
+
+    # (이미 전달시에 산정된 총점은 키워드 중복이 제거되어있음)
+    # 디버깅 로그에서도 중복제거를 위한 반복문 추가
+    unique = {}
+    for m in match_log:
+        key = (m["section"], m["keyword"])
+        if key not in unique:
+            unique[key] = m
+
+    match_log = list(unique.values())
 
     return section_total_score, match_log
