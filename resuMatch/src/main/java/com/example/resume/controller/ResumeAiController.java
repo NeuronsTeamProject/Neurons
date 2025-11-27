@@ -10,26 +10,53 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/resumes")
+@CrossOrigin(origins = "http://localhost:5173")  // 프론트 개발 서버 허용
 public class ResumeAiController {
 
     private final ResumeAiService service;
 
-    // (1) 프론트→백엔드(파일) → E5 파이썬 서비스 프록시 → 점수/키워드 수신 & 저장
-    @PostMapping(value = "/e5/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResumeResponseDTO analyzeWithE5(@RequestPart("file") MultipartFile file) {
-        return service.analyzeWithE5(file);
+    /**
+     * (메인) 이력서 분석 엔드포인트
+     *
+     * 프론트에서 PDF + jobRole(+ name)을 보내면:
+     *  1) E5 분석 (score, keyword)
+     *  2) GPT 요약 (aiSummary)
+     *  3) DB에 한 줄로 저장
+     *  4) 저장된 결과를 JSON으로 프론트에 바로 응답
+     *
+     * 최종 엔드포인트: POST /api/resumes/result
+     *
+     * 프론트 예시 (React):
+     *
+     * const formData = new FormData();
+     * formData.append("file", selectedFile);
+     * formData.append("jobRole", selectedRole);       // 예: "프론트엔드"
+     * formData.append("name", resumeName);            // 예: "홍길동_프론트엔드_이력서"
+     *
+     * const res = await fetch("http://localhost:8080/api/resumes/result", {
+     *   method: "POST",
+     *   body: formData,
+     * });
+     * const data = await res.json();
+     */
+    @PostMapping(
+            value = "/result",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResumeResponseDTO analyzeAll(
+            @RequestPart("file") MultipartFile file,
+            @RequestParam("jobRole") String jobRole,
+            @RequestParam(value = "name", required = false) String name
+    ) {
+        return service.analyzeAll(file, jobRole, name);
     }
 
-    // (2) 프론트→백엔드(파일) → GPT API에 파일 그대로 전달, 총평 수신 & 저장
-    @PostMapping(value = "/gpt/summary", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResumeResponseDTO summarizeWithGpt(@RequestPart("file") MultipartFile file) {
-        return service.summarizeWithGpt(file);
-    }
-
-    // (3) 단건 조회 (프론트에서 결과 재표시)
+    /**
+     * 저장된 결과 단건 조회
+     * GET /api/resumes/{id}
+     */
     @GetMapping("/{id}")
     public ResumeResponseDTO getOne(@PathVariable Integer id) {
         return service.getOne(id);
     }
-
 }

@@ -9,7 +9,8 @@ import java.util.List;
 public class ResumeResponseDTO {
     private Integer id;
     private String pdfName;
+    private String role;
     private Integer score;        // null 가능 (GPT 총평만 한 경우)
-    private List<String> keywords;
+    private String keywords;
     private String aiSummary;
 }

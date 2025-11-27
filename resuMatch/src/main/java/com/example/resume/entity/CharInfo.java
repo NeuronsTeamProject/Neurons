@@ -16,6 +16,9 @@ public class CharInfo {
     @Column(name = "pdf_name", nullable = false, length = 45)
     private String pdfName;
 
+    @Column(name = "job_role")
+    private String role;
+
     @Lob
     @Column(name = "pdf")
     private byte[] pdf; // LONGBLOB
