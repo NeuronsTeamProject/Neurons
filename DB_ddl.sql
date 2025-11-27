@@ -9,6 +9,7 @@ DROP TABLE IF EXISTS `char_info`;
 CREATE TABLE `char_info` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `pdf_name` VARCHAR(45) NOT NULL,
+  `job_role` VARCHAR(10) NOT NULL,
   `pdf` LONGBLOB DEFAULT NULL,
   `score` INT DEFAULT NULL,
   `keyword` VARCHAR(255) DEFAULT NULL,
