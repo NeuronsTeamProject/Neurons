@@ -1,4 +1,5 @@
 # 모델 성능 테스트를 위한 로컬 실행환경 코드파일
+# 백단과 연동시에는 관계없는 별도의 테스트 파일입니다.
 
 from analyze import analyze_resume
 

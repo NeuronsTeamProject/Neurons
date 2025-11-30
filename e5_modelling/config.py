@@ -1828,6 +1828,7 @@ section_labels = {
 }
 
 # 후처리 규칙(필터링)
+# 현재 몇 가지의 키워드만 설정되어있으나 키워드의 종류가 많아 추가하기 어려워 보류 중
 KEYWORD_GATES = {
     # 기술 키워드: 실제 표기 또는 매우 직접적인 단어가 있을 때만 인정
     "python": lambda sent, section: any(w in sent.lower() for w in ["python", "파이썬"]),

@@ -6,7 +6,6 @@
 '''
 from analyze import analyze_resume
 
-# analyze_resume를 호출하고 프론트에서 쓰기 좋은 
 def e5_analyze_api(pdf_path: str, job_role: str) -> dict:
     base_result = analyze_resume(pdf_path, job_role)
 
@@ -17,7 +16,7 @@ def e5_analyze_api(pdf_path: str, job_role: str) -> dict:
     unique_keywords = sorted(set(match["keyword"] for match in base_result["matches"]))
     keywords = ", ".join(unique_keywords)
     
-    # 백엔드로 전달할 score, keyword
+    # 백엔드로 전달할 score, keyword -> 명칭 정확하게 전달
     return {
         "score": total_score,
         "keyword": keywords

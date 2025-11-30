@@ -51,7 +51,8 @@ def rule_based_precheck(sentence: str):
     if any(word in sentence for word in [
         "정보처리기사", "빅데이터분석기사", "정보보안기사",
         "SQLD", "TOEIC", "토익", "OPIC", "오픽", "JLPT", "TOPIK",
-        "자격증", "어학", "점수"
+        "자격증", "어학", "점수", "네트워크관리사", "ADSP", "CCNA",
+        "CCNP", "CCIE"
     ]):
         return "자격어학"
     return None
@@ -65,14 +66,14 @@ def classify_sentences_by_section(sentences):
 
     # 1) 섹션 정의문은 "query:" 역할
     section_queries = [e5_query(desc) for desc in section_descs]
-    section_emb = embed_text(section_queries)          # [num_sections, dim]
+    section_emb = embed_text(section_queries)         
 
     # 2) 이력서 문장은 "passage:" 역할
     passage_texts = [e5_passage(s) for s in sentences]
-    sentence_emb = embed_text(passage_texts)           # [num_sentences, dim]
+    sentence_emb = embed_text(passage_texts)
 
     # 3) 유사도 계산 (문장 x 섹션)
-    similarity = sentence_emb @ section_emb.T          # [num_sentences, num_sections]
+    similarity = sentence_emb @ section_emb.T
     section_buckets = {name: [] for name in section_names}
     unassigned = []         # 임계값 미달 문장들을 보낼 버킷
 
@@ -124,10 +125,12 @@ def score_section_cert(sentences, section_name, awarded_keywords_global):
 
 
 # [프론트로부터 파일 받아와서 분석 시작하는 로직]
+
 # B. 일반 섹션 점수 계산 (의미 유사도 기반)
 def score_section_semantic(sentences, section_name, awarded_keywords_global,job_role: str):
     
-    # ---- 0) 직무에 따라 사용할 키워드 선택 ----
+    # 0) 직무에 따라 사용할 키워드 선택
+
     # job_role: "backend", "프론트엔드" 같은 값이 들어와도 되도록 매핑
     internal_role = JOB_ROLE_MAP.get(job_role, job_role)  # 이미 "BACKEND" 등이면 그대로 사용
     role_kw_data = technical_keywords.get(internal_role)
@@ -146,7 +149,7 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global,job_
 
     # 3) 문장 임베딩
     passage_texts = [e5_passage(s) for s in filtered_sentences]
-    sentence_emb = embed_text(passage_texts)  # shape: [num_sentences, dim]
+    sentence_emb = embed_text(passage_texts) 
 
     canonical_keywords, template_texts,template_owner = [], [], []      
 
@@ -158,16 +161,13 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global,job_
             template_texts.append(e5_query(t))
             template_owner.append(kw)
 
-    template_emb = embed_text(template_texts)  # [num_templates, dim]
+    template_emb = embed_text(template_texts)
 
-    # ③ 문장 x 템플릿 유사도
-    #    이후 "정식 키워드" 단위로 최대값을 집계
     sim_mat = sentence_emb @ template_emb.T
     owner_to_indices = defaultdict(list)
     for idx, owner in enumerate(template_owner):
         owner_to_indices[owner].append(idx)
 
-    # ⑤ 각 문장에 대해 "정식 키워드" 별 최대 유사도 계산 → best_kw 선택
     for sent_idx in range(sim_mat.shape[0]):
         best_kw = None
         best_sim = -1.0
@@ -192,9 +192,9 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global,job_
                 if best_sim < (THRESHOLD_KEYWORD + 0.05):        # 유사도 높으면 통과
                     continue
 
-        # ⑥ 임계값 통과 + 중복 방지 후 점수 부여
+        # 임계값 통과 + 중복 방지 후 점수 부여
         if best_sim >= THRESHOLD_KEYWORD and best_kw not in awarded_keywords_global:
-            # 점수표에서 스코어 가져오기 (첫 카테고리에서 찾음)
+            # 점수표에서 스코어 가져오기
             kw_score = role_kw_data.get(best_kw) # 선택한 직무 키워드 딕셔너리만 보도록 변경
 
             if kw_score is None:
@@ -208,7 +208,7 @@ def score_section_semantic(sentences, section_name, awarded_keywords_global,job_
                 "keyword": best_kw,
                 "sim": round(best_sim, 3),
                 "score": kw_score,
-                "used_template": template_texts[best_template_idx],  # 디버깅/설명용
+                "used_template": template_texts[best_template_idx]
             })
 
     # (이미 전달시에 산정된 총점은 키워드 중복이 제거되어있음)
