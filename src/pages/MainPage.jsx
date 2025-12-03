@@ -11,7 +11,10 @@ export default function MainPage({
   file,
   onFileChange,
   filterCategory,
-  onFilterCategory
+  onFilterCategory,
+  categoryMap,
+  onAnalyzeResume,
+  analysisResult
 }) {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -22,23 +25,49 @@ export default function MainPage({
     }
   };
 
+  // 카테고리 선택 핸들러
+  const handleCategoryClick = (category) => {
+    onSelectCategory(category);
+    
+    // 영문 카테고리 값 확인 (디버깅용)
+    if (categoryMap) {
+      console.log('Category button clicked:', category);
+      console.log('English value:', categoryMap[category]);
+    }
+  };
+
   // 지원자 클릭 시 상세 페이지로 이동
   const handleApplicantClick = (applicant) => {
     navigate(`/applicant/${applicant.id}`);
   };
 
-  // 이력서 분석 시작 버튼 클릭 핸들러
-  const handleAnalyzeClick = () => {
+  // 이력서 분석 시작 버튼 클릭 핸들러 (E5 모델 호출)
+  const handleAnalyzeClick = async () => {
     // 파일이 업로드되지 않은 경우 경고
     if (!file) {
       alert('먼저 이력서 파일을 업로드해주세요.');
       return;
     }
 
-    // 점수가 가장 높은 지원자로 이동
-    const sortedApplicants = [...applicants].sort((a, b) => b.score - a.score);
-    if (sortedApplicants.length > 0) {
-      navigate(`/applicant/${sortedApplicants[0].id}`);
+    // E5 모델에 job_role과 file 전송
+    const jobRole = categoryMap[selectedCategory]; // 'frontend', 'backend', 'uiux'
+    
+    console.log('Starting resume analysis...');
+    console.log('Job Role:', jobRole);
+    console.log('File:', file.name);
+
+    const result = await onAnalyzeResume(file, jobRole);
+    
+    if (result.success) {
+      console.log('Analysis completed successfully!');
+      console.log('Score:', result.data.score);
+      console.log('Keywords:', result.data.keywords);
+      
+      // 분석 완료 후 결과 페이지로 이동하거나 모달 표시 가능
+      alert(`분석 완료!\n점수: ${result.data.score}\n키워드: ${result.data.keywords}`);
+    } else {
+      console.error('Analysis failed:', result.error);
+      alert('이력서 분석에 실패했습니다. 다시 시도해주세요.');
     }
   };
 
@@ -108,7 +137,7 @@ export default function MainPage({
             <div className="category-grid">
               <button 
                 className={`category-button ${selectedCategory === '백엔드' ? 'selected' : ''}`}
-                onClick={() => onSelectCategory('백엔드')}
+                onClick={() => handleCategoryClick('백엔드')}
               >
                 <div className="category-content">
                   <Code className="category-icon" />
@@ -118,7 +147,7 @@ export default function MainPage({
 
               <button 
                 className={`category-button ${selectedCategory === '프론트엔드' ? 'selected' : ''}`}
-                onClick={() => onSelectCategory('프론트엔드')}
+                onClick={() => handleCategoryClick('프론트엔드')}
               >
                 <div className="category-content">
                   <Code className="category-icon" />
@@ -128,7 +157,7 @@ export default function MainPage({
 
               <button 
                 className={`category-button ${selectedCategory === '기획자' ? 'selected' : ''}`}
-                onClick={() => onSelectCategory('기획자')}
+                onClick={() => handleCategoryClick('기획자')}
               >
                 <div className="category-content">
                   <Briefcase className="category-icon" />
