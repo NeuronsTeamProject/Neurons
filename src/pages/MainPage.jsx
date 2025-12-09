@@ -11,10 +11,8 @@ export default function MainPage({
   file,
   onFileChange,
   filterCategory,
-  onFilterCategory,
   categoryMap,
-  onAnalyzeResume,
-  analysisResult
+  onAnalyzeResume
 }) {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -43,13 +41,11 @@ export default function MainPage({
 
   // 이력서 분석 시작 버튼 클릭 핸들러 (E5 모델 호출)
   const handleAnalyzeClick = async () => {
-    // 파일이 업로드되지 않은 경우 경고
     if (!file) {
       alert('먼저 이력서 파일을 업로드해주세요.');
       return;
     }
 
-    // E5 모델에 job_role과 file 전송
     const jobRole = categoryMap[selectedCategory]; // 'frontend', 'backend', 'uiux'
     
     console.log('Starting resume analysis...');
@@ -62,8 +58,6 @@ export default function MainPage({
       console.log('Analysis completed successfully!');
       console.log('Score:', result.data.score);
       console.log('Keywords:', result.data.keywords);
-      
-      // 분석 완료 후 결과 페이지로 이동하거나 모달 표시 가능
       alert(`분석 완료!\n점수: ${result.data.score}\n키워드: ${result.data.keywords}`);
     } else {
       console.error('Analysis failed:', result.error);
@@ -76,8 +70,8 @@ export default function MainPage({
 
   // 카테고리 필터링
   const filteredApplicants = filterCategory === '전체'
-    ? sortedApplicants
-    : sortedApplicants.filter(applicant => applicant.category === filterCategory);
+  ? sortedApplicants
+  : sortedApplicants.filter(applicant => applicant.category === filterCategory);
 
   return (
     <div className="app-container">
@@ -115,7 +109,7 @@ export default function MainPage({
                 >
                   <div className="applicant-header">
                     <span className="applicant-name">
-                      {applicant.name} ({applicant.gender})
+                      {applicant.name}
                     </span>
                     <span className="category-badge">{applicant.category}</span>
                   </div>

@@ -19,6 +19,13 @@ export default function ApplicantDetail({
     (applicant) => applicant.id === parseInt(id)
   );
 
+  // skills 기본값
+  const skills = selectedApplicant?.skills || {
+    required: [],
+    preferred: [],
+    tools: []
+  };
+
   // 페이지 로드 시 스크롤 최상단으로
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -72,11 +79,6 @@ export default function ApplicantDetail({
   // 다른 지원자 클릭 시
   const handleApplicantClick = (applicant) => {
     navigate(`/applicant/${applicant.id}`);
-  };
-
-  // 닫기 버튼 클릭 시
-  const handleClose = () => {
-    navigate('/');
   };
 
   // 점수순으로 정렬 (높은 순)
@@ -161,7 +163,7 @@ export default function ApplicantDetail({
                 >
                   <div className="applicant-header">
                     <span className="applicant-name">
-                      {applicant.name} ({applicant.gender})
+                      {applicant.name}
                     </span>
                     <span className="category-badge">{applicant.category}</span>
                   </div>
@@ -178,7 +180,7 @@ export default function ApplicantDetail({
             <h2 className="detail-title">이력서 내용</h2>
             <button 
               className="close-button"
-              onClick={handleClose}
+              onClick={() => navigate('/')}
             >
               ✕
             </button>
@@ -204,40 +206,37 @@ export default function ApplicantDetail({
                 </div>
               )}
 
-              {/* 점수 및 분석 카드 */}
+              {/* 점수 및 분석 결과 */}
               <div className="analysis-card">
                 <div className="score-section">
-                  <div className="score-header">
-                    <Award className="score-icon" />
-                    <h3 className="score-title">종합 평가 점수</h3>
+                  <h3 className="score-title">AI 매칭 점수</h3>
+                  <div className="score-value">
+                    <span className="score-number">{selectedApplicant.score}</span>
+                    <span className="score-unit"> / 100</span>
                   </div>
-                  <div className="score-number">{selectedApplicant.score}점</div>
-                  <div className="score-bar">
-                    <div 
-                      className="score-bar-fill" 
-                      style={{width: `${selectedApplicant.score}%`}}
-                    />
-                  </div>
+                  <p className="score-description">
+                    해당 직무와의 적합도를 점수로 환산한 값입니다.
+                  </p>
                 </div>
 
-                <div className="overall-section">
-                  <div className="overall-header">
-                    <Target className="overall-icon" />
-                    <h3 className="overall-title">종합 총평</h3>
+                <div className="analysis-section">
+                  <h3 className="analysis-title">
+                    <Target className="analysis-icon" />
+                    AI 분석 결과
+                  </h3>
+                  <p className="analysis-text">
+                    {selectedApplicant.analysis || '이력서에 기반한 분석 결과가 여기에 표시됩니다.'}
+                  </p>
+                </div>
+
+                <div className="badge-section">
+                  <Award className="badge-icon" />
+                  <div className="badge-text">
+                    <p className="badge-title">강점 요약</p>
+                    <p className="badge-description">
+                      {selectedApplicant.strengths || '주요 강점 및 차별화 포인트가 여기에 표시됩니다.'}
+                    </p>
                   </div>
-                  <p className="overall-text">
-                    {selectedApplicant.name} 지원자는 {selectedApplicant.category} 직무에 매우 적합한 후보자로 평가됩니다. 
-                    탄탄한 기술적 기반 위에 실무 경험이 더해져 즉시 전력으로 활약할 수 있는 역량을 갖추고 있습니다. 
-                    특히 {selectedApplicant.skills.required.slice(0, 2).join(', ')} 등의 기술에 대한 깊이 있는 이해와 
-                    {selectedApplicant.skills.preferred[0]}을 통한 협업 경험은 팀 내에서 시너지를 창출할 수 있는 
-                    강력한 자산이 될 것입니다.
-                  </p>
-                  <p className="overall-text">
-                    또한, 지속적인 자기계발 의지와 새로운 기술에 대한 열린 자세는 빠르게 변화하는 
-                    기술 환경에서 조직과 함께 성장할 수 있는 잠재력을 보여줍니다. 
-                    {selectedApplicant.department} 전공 배경과 실무 경험이 조화를 이루어 
-                    이론과 실무를 모두 아우르는 균형잡힌 개발자로 성장할 것으로 기대됩니다.
-                  </p>
                 </div>
               </div>
             </div>
@@ -251,7 +250,7 @@ export default function ApplicantDetail({
                   <div className="keywords-group">
                     <h4 className="keywords-group-title">필수 기술</h4>
                     <div className="keywords">
-                      {selectedApplicant.skills.required.map((skill, idx) => (
+                      {skills.required.map((skill, idx) => (
                         <span key={idx} className="keyword-tag keyword-required">{skill}</span>
                       ))}
                     </div>
@@ -260,7 +259,7 @@ export default function ApplicantDetail({
                   <div className="keywords-group">
                     <h4 className="keywords-group-title">우대 역량</h4>
                     <div className="keywords">
-                      {selectedApplicant.skills.preferred.map((skill, idx) => (
+                      {skills.preferred.map((skill, idx) => (
                         <span key={idx} className="keyword-tag keyword-preferred">{skill}</span>
                       ))}
                     </div>
@@ -269,15 +268,15 @@ export default function ApplicantDetail({
                   <div className="keywords-group">
                     <h4 className="keywords-group-title">사용 도구</h4>
                     <div className="keywords">
-                      {selectedApplicant.skills.tools.map((skill, idx) => (
-                        <span key={idx} className="keyword-tag keyword-tools">{skill}</span>
+                      {skills.tools.map((tool, idx) => (
+                        <span key={idx} className="keyword-tag keyword-tools">{tool}</span>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* 지원자 기본 정보 추가 */}
-                <div className="applicant-info-summary">
+                {/* 간단한 요약 정보 */}
+                <div className="info-summary">
                   <h4 className="info-summary-title">지원자 정보</h4>
                   <div className="info-summary-grid">
                     <div className="info-summary-item">
@@ -286,11 +285,13 @@ export default function ApplicantDetail({
                     </div>
                     <div className="info-summary-item">
                       <span className="info-summary-label">직무</span>
-                      <span className="info-summary-value category-highlight">{selectedApplicant.category}</span>
+                      <span className="info-summary-value">{selectedApplicant.category}</span>
                     </div>
                     <div className="info-summary-item">
-                      <span className="info-summary-label">전공</span>
-                      <span className="info-summary-value">{selectedApplicant.department}</span>
+                      <span className="info-summary-label">경력</span>
+                      <span className="info-summary-value">
+                        {selectedApplicant.career || '신입'}
+                      </span>
                     </div>
                     <div className="info-summary-item">
                       <span className="info-summary-label">지역</span>

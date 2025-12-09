@@ -1,8 +1,7 @@
 // utils/api.js
 
 // 백엔드 API 기본 URL (환경에 따라 변경)
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 /**
  * 직무 카테고리를 백엔드로 전송
  * @param {string} category - 영문 카테고리 값 ('frontend', 'backend', 'uiux')
