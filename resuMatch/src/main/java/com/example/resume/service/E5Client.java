@@ -1,64 +1,116 @@
 package com.example.resume.service;
 
-import com.example.resume.dto.E5AnalyzeResponse;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.multipart.MultipartFile;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Component
-@RequiredArgsConstructor
 public class E5Client {
 
-    private final RestTemplate restTemplate;
+    @Value("${e5.python.command}")
+    private String pythonCommand;   // .venv/Scripts/python.exe (상대 경로)
 
-    @Value("${E5_API_URL:http://localhost:8000/analyze}")
-    private String e5ApiUrl;
+    @Value("${e5.script.path}")
+    private String scriptPath;      // e5_modelling/main.py (상대 경로)
 
-    public E5AnalyzeResponse analyzeResume(MultipartFile file, String jobRole) {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * pdfFile: 스프링이 Temp 폴더에 저장한 PDF 파일
+     * jobRole: "frontend" / "backend" / "uiux" 같은 직무 문자열
+     */
+    public E5Result analyzeResume(File pdfFile, String jobRole) {
         try {
-            // (1) PDF를 ByteArrayResource 로 변환
-            ByteArrayResource resource = new ByteArrayResource(file.getBytes()) {
-                @Override
-                public String getFilename() {
-                    return file.getOriginalFilename();
-                }
-            };
+            // 1) 현재 프로젝트 루트(Neurons-develop)의 절대 경로
+            Path baseDir = Paths.get("").toAbsolutePath();
 
-            // (2) multipart/form-data body 생성
-            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            body.add("file", resource);                  // PDF 전송
-            body.add("job_role", jobRole);               // 직무 전송 (필드명은 E5 서버와 동일해야 함)
+            // 2) 상대 경로로 들어온 pythonCommand, scriptPath를 절대 경로로 변환
+            Path pythonPath = Paths.get(pythonCommand);
+            if (!pythonPath.isAbsolute()) {
+                pythonPath = baseDir.resolve(pythonPath).normalize();
+            }
 
-            // (3) 헤더 설정
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+            Path script = Paths.get(scriptPath);
+            if (!script.isAbsolute()) {
+                script = baseDir.resolve(script).normalize();
+            }
 
-            HttpEntity<MultiValueMap<String, Object>> requestEntity =
-                    new HttpEntity<>(body, headers);
+            System.out.println("[E5] baseDir    = " + baseDir);
+            System.out.println("[E5] pythonPath = " + pythonPath);
+            System.out.println("[E5] scriptPath = " + script);
+            System.out.println("[E5] tempPdf    = " + pdfFile.getAbsolutePath());
 
-            // (4) E5 서버 호출
-            ResponseEntity<E5AnalyzeResponse> resp = restTemplate.exchange(
-                    e5ApiUrl,
-                    HttpMethod.POST,
-                    requestEntity,
-                    E5AnalyzeResponse.class
+            // 3) 프로세스 실행: python main.py <pdfPath> <jobRole>
+            ProcessBuilder pb = new ProcessBuilder(
+                    pythonPath.toString(),
+                    script.toString(),
+                    pdfFile.getAbsolutePath(),
+                    jobRole
             );
 
-            return resp.getBody();
+            // 한글 로그 깨지지 않도록 UTF-8로 읽기
+            pb.redirectErrorStream(true); // stderr -> stdout 합치기
+
+            Process process = pb.start();
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
+            )) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append('\n');
+                }
+            }
+
+            int exitCode = process.waitFor();
+            System.out.println("[E5] exitCode = " + exitCode);
+            System.out.println("[E5] raw output = " + output);
+
+            if (exitCode != 0) {
+                throw new RuntimeException("E5 Python script failed. exitCode=" + exitCode);
+            }
+
+            // 4) main.py가 마지막에 JSON 한 줄을 찍는다고 가정
+            String json = output.toString().trim();
+            JsonNode root = objectMapper.readTree(json);
+
+            int score = root.path("score").asInt();
+            String keyword = root.path("keyword").asText();
+
+            E5Result result = new E5Result();
+            result.setScore(score);
+            result.setKeyword(keyword);
+            return result;
 
         } catch (Exception e) {
+            e.printStackTrace();
             throw new RuntimeException("E5 분석 호출 실패: " + e.getMessage(), e);
         }
     }
 
-    // 기존 방식 유지(필요하면)
-    public E5AnalyzeResponse analyzeResume(MultipartFile file) {
-        return analyzeResume(file, null);
+    // E5 결과를 담는 간단한 DTO
+    public static class E5Result {
+        private int score;
+        private String keyword;
+
+        public int getScore() {
+            return score;
+        }
+        public void setScore(int score) {
+            this.score = score;
+        }
+        public String getKeyword() {
+            return keyword;
+        }
+        public void setKeyword(String keyword) {
+            this.keyword = keyword;
+        }
     }
 }

@@ -1,6 +1,5 @@
 package com.example.resume.service;
 
-import com.example.resume.dto.E5AnalyzeResponse;
 import com.example.resume.dto.ResumeResponseDTO;
 import com.example.resume.entity.CharInfo;
 import com.example.resume.repository.CharInfoRepository;
@@ -9,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 
 @Service
@@ -16,46 +16,44 @@ import java.nio.charset.StandardCharsets;
 public class ResumeAiService {
 
     private final E5Client e5Client;
-    private final GptClient gptClient;
     private final CharInfoRepository repository;
 
     /**
-     * 프론트에서 들어온 PDF + jobRole(+ name)을 가지고
-     *  1) E5 분석 호출 → score, keyword
-     *  2) GPT 요약 호출 → aiSummary
-     *  3) DB에 한 번에 저장
-     *  4) 저장된 결과를 DTO로 반환
+     * 프론트에서 업로드한 이력서를 E5로 분석하고,
+     * 결과를 DB(char_info)에 저장한 뒤, 요약 DTO를 반환.
      */
     @Transactional
-    public ResumeResponseDTO analyzeAll(MultipartFile file, String jobRole, String name) {
+    public ResumeResponseDTO analyze(MultipartFile multipartFile, String jobRole) {
         try {
-            // 0) 공통 데이터 준비
-            byte[] pdfBytes = file.getBytes();
+            // 원본 파일명 (없으면 기본값)
+            String originalName = multipartFile.getOriginalFilename();
+            if (originalName == null || originalName.isBlank()) {
+                originalName = "resume.pdf";
+            }
 
-            // pdfName 결정: 프론트에서 name을 주면 그걸 쓰고, 없으면 파일명 사용
-            String pdfName = (name != null && !name.isBlank())
-                    ? name
-                    : safeName(file.getOriginalFilename());
+            // 1) MultipartFile → 실제 임시 파일로 저장
+            File tempPdf = File.createTempFile("resume-", ".pdf");
+            multipartFile.transferTo(tempPdf);   // 여기서 File 타입 사용
 
-            // 1) E5 분석 (PDF + 직무)
-            E5AnalyzeResponse e5 = e5Client.analyzeResume(file, jobRole);
-            Integer score = e5 != null ? e5.getScore() : null;
-            String keywordString = e5 != null ? e5.getKeyword() : null;
+            // 2) E5 Python 모델 호출 (File, jobRole)
+            E5Client.E5Result e5 = e5Client.analyzeResume(tempPdf, jobRole);
 
-            // 2) GPT 요약 (PDF만 사용)
-            String summary = gptClient.summarizePdf(pdfBytes, pdfName);
-
-            // 3) DB 저장 (한 줄에 모두 저장)
-            CharInfo saved = repository.save(CharInfo.builder()
-                    .pdfName(pdfName)
+            // 3) DB에 저장할 엔티티 생성
+            CharInfo entity = CharInfo.builder()
+                    .pdfName(originalName)
                     .role(jobRole)
-                    .pdf(pdfBytes)
-                    .score(score)
-                    .keyword(keywordString)
-                    .aiSummary(trimToLength(summary, 300)) // ai_summary 컬럼 길이 맞추기
-                    .build());
+                    .pdf(multipartFile.getBytes())                 // 바이너리로 저장
+                    .score(e5.getScore())                          // E5 점수
+                    .keyword(trimToLength(e5.getKeyword(), 500))   // 너무 길면 잘라서 저장
+                    // .aiSummary(요약문)  // GPT 요약 붙일 거면 여기 채우면 됨
+                    .build();
 
-            // 4) 프론트로 보낼 DTO 구성
+            CharInfo saved = repository.save(entity);
+
+            // 4) 임시 파일 정리
+            tempPdf.deleteOnExit();
+
+            // 5) 프론트로 보낼 DTO 구성
             return ResumeResponseDTO.builder()
                     .id(saved.getId())
                     .pdfName(saved.getPdfName())
@@ -66,106 +64,26 @@ public class ResumeAiService {
                     .build();
 
         } catch (Exception e) {
-            throw new RuntimeException("이력서 분석 중 오류 발생: " + e.getMessage(), e);
+            throw new RuntimeException("이력서 분석/저장 중 오류: " + e.getMessage(), e);
         }
     }
 
     /**
-     * (옵션) E5만 따로 돌리고 싶을 때 사용할 수 있는 메서드
-     * - 지금 컨트롤러에서는 쓰지 않지만, 나중에 디버깅용으로 쓸 수 있음
-     */
-    @Transactional
-    public ResumeResponseDTO analyzeWithE5(MultipartFile file, String jobRole) {
-        try {
-            E5AnalyzeResponse e5 = e5Client.analyzeResume(file, jobRole);
-
-            CharInfo saved = repository.save(CharInfo.builder()
-                    .pdfName(safeName(file.getOriginalFilename()))
-                    .role(jobRole)
-                    .pdf(file.getBytes())
-                    .score(e5 != null ? e5.getScore() : null)
-                    .keyword(e5 != null ? e5.getKeyword() : null)
-                    .aiSummary(null)
-                    .build());
-
-            return ResumeResponseDTO.builder()
-                    .id(saved.getId())
-                    .pdfName(saved.getPdfName())
-                    .role(saved.getRole())
-                    .score(saved.getScore())
-                    .keywords(saved.getKeyword())
-                    .aiSummary(saved.getAiSummary())
-                    .build();
-
-        } catch (Exception e) {
-            throw new RuntimeException("E5 분석 중 오류 발생: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * (옵션) GPT 요약만 따로 돌리고 싶을 때 사용할 수 있는 메서드
-     */
-    @Transactional
-    public ResumeResponseDTO summarizeWithGpt(MultipartFile file) {
-        try {
-            byte[] pdfBytes = file.getBytes();
-            String pdfName = safeName(file.getOriginalFilename());
-
-            String summary = gptClient.summarizePdf(pdfBytes, pdfName);
-
-            CharInfo saved = repository.save(CharInfo.builder()
-                    .pdfName(pdfName)
-                    .role(null)
-                    .pdf(pdfBytes)
-                    .score(null)
-                    .keyword(null)
-                    .aiSummary(trimToLength(summary, 300))
-                    .build());
-
-            return ResumeResponseDTO.builder()
-                    .id(saved.getId())
-                    .pdfName(saved.getPdfName())
-                    .role(saved.getRole())
-                    .score(saved.getScore())
-                    .keywords(saved.getKeyword())
-                    .aiSummary(saved.getAiSummary())
-                    .build();
-
-        } catch (Exception e) {
-            throw new RuntimeException("GPT 요약 중 오류 발생: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * id로 저장된 결과 조회
+     * 단건 조회 (선택적으로 사용)
      */
     @Transactional(readOnly = true)
     public ResumeResponseDTO getOne(Integer id) {
-        CharInfo ci = repository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("not found: " + id));
+        CharInfo entity = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 이력서 ID: " + id));
 
         return ResumeResponseDTO.builder()
-                .id(ci.getId())
-                .pdfName(ci.getPdfName())
-                .role(ci.getRole())
-                .score(ci.getScore())
-                .keywords(ci.getKeyword())
-                .aiSummary(ci.getAiSummary())
+                .id(entity.getId())
+                .pdfName(entity.getPdfName())
+                .role(entity.getRole())
+                .score(entity.getScore())
+                .keywords(entity.getKeyword())
+                .aiSummary(entity.getAiSummary())
                 .build();
-    }
-
-    /**
-     * 파일 이름을 안전하게 정리
-     */
-    private String safeName(String original) {
-        if (original == null) return "resume.pdf";
-        String name = original;
-        // 윈도우/맥 경로 섞여 있을 수 있으니 마지막 /, \ 뒤만 사용
-        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
-        if (slash != -1 && slash < name.length() - 1) {
-            name = name.substring(slash + 1);
-        }
-        return name;
     }
 
     /**
