@@ -12,10 +12,10 @@ from scoring import (
 )
 
 # 초기 설정(최초 1회만 주석 해제해서 실행해주세요!)
-'''
+
 nltk.download('punkt')
 nltk.download('punkt_tab')
-'''
+
 
 # PDF 텍스트 추출
 def extract_text_from_pdf(pdf_path: str) -> str:
