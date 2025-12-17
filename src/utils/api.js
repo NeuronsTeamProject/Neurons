@@ -1,176 +1,73 @@
 // utils/api.js
 
-// 백엔드 API 기본 URL (환경에 따라 변경)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-/**
- * 직무 카테고리를 백엔드로 전송
- * @param {string} category - 영문 카테고리 값 ('frontend', 'backend', 'uiux')
- * @returns {Promise<Object>} API 응답
- */
-export const sendCategoryToBackend = async (category) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/category`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            category: category,
-            timestamp: new Date().toISOString()
-        })
-        });
-
-        if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return {
-        success: true,
-        data: data
-        };
-    } catch (error) {
-        console.error('Error sending category to backend:', error);
-        return {
-        success: false,
-        error: error.message
-        };
-    }
-};
-
-/**
- * 이력서 파일과 카테고리를 함께 백엔드로 전송
- * @param {File} file - PDF 파일
- * @param {string} category - 영문 카테고리 값
- * @returns {Promise<Object>} API 응답
- */
-export const uploadResumeWithCategory = async (file, category) => {
-    try {
-        const formData = new FormData();
-        formData.append('resume', file);
-        formData.append('category', category);
-
-        const response = await fetch(`${API_BASE_URL}/api/upload-resume`, {
-        method: 'POST',
-        body: formData
-        });
-
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return {
-        success: true,
-        data: data
-        };
-    } catch (error) {
-        console.error('Error uploading resume:', error);
-        return {
-        success: false,
-        error: error.message
-        };
-    }
-};
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
 /**
  * 지원자 목록 조회
- * @returns {Promise<Object>} 지원자 목록
+ * - GET /api/applicants
  */
 export const fetchApplicants = async () => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/applicants`, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-        }
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/applicants`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
     });
 
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     const data = await response.json();
-        return {
-        success: true,
-        data: data
-        };
-    } catch (error) {
-        console.error('Error fetching applicants:', error);
-        return {
-        success: false,
-        error: error.message
-        };
-    }
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error fetching applicants:", error);
+    return { success: false, error: error.message };
+  }
 };
 
 /**
- * 카테고리별 지원자 목록 조회
- * @param {string} category - 영문 카테고리 값 (선택사항)
- * @returns {Promise<Object>} 지원자 목록
+ * (선택) 단건 지원자 조회
+ * - GET /api/applicants/{id}
  */
-export const fetchApplicantsByCategory = async (category = null) => {
-    try {
-        const url = category 
-        ? `${API_BASE_URL}/api/applicants?category=${category}`
-        : `${API_BASE_URL}/api/applicants`;
+export const fetchApplicantById = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/applicants/${id}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
 
-        const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-        }
-        });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-        if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return {
-        success: true,
-        data: data
-        };
-    } catch (error) {
-        console.error('Error fetching applicants:', error);
-        return {
-        success: false,
-        error: error.message
-        };
-    }
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error fetching applicant:", error);
+    return { success: false, error: error.message };
+  }
 };
 
 /**
  * 이력서 분석 요청
- * @param {File} file - PDF 파일
- * @param {string} category - 영문 카테고리 값
- * @returns {Promise<Object>} 분석 결과
+ * - POST /api/analyze
+ * - multipart/form-data
+ *   file: PDF
+ *   job_role: "frontend" / "backend" / "uiux" ...
  */
-export const analyzeResume = async (file, category) => {
-    try {
-        const formData = new FormData();
-        formData.append('resume', file);
-        formData.append('category', category);
+export const analyzeResume = async (file, jobRole) => {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("job_role", jobRole);
 
-        const response = await fetch(`${API_BASE_URL}/api/analyze-resume`, {
-        method: 'POST',
-        body: formData
-        });
+    const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+      method: "POST",
+      body: formData,
+    });
 
-        if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-        }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-        const data = await response.json();
-        return {
-        success: true,
-        data: data
-        };
-    } catch (error) {
-        console.error('Error analyzing resume:', error);
-        return {
-        success: false,
-        error: error.message
-        };
-    }
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error analyzing resume:", error);
+    return { success: false, error: error.message };
+  }
 };
