@@ -10,11 +10,13 @@ CREATE TABLE `char_info` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `pdf_name` VARCHAR(45) NOT NULL,
   `job_role` VARCHAR(20) NOT NULL,
-  `pdf` LONGBLOB DEFAULT NULL,
+  `pdf` VARCHAR(500) DEFAULT NULL,
   `score` INT DEFAULT NULL,
   `keyword` VARCHAR(255) DEFAULT NULL,
-  `ai_summary` VARCHAR(300) DEFAULT NULL,
+  `ai_summary` longtext DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB 
   DEFAULT CHARSET=utf8mb4 
   COLLATE=utf8mb4_0900_ai_ci;
+  
+  
