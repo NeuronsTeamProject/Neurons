@@ -5,8 +5,11 @@ import lombok.*;
 
 @Entity
 @Table(name = "char_info")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class CharInfo {
 
     @Id
@@ -19,9 +22,8 @@ public class CharInfo {
     @Column(name = "job_role")
     private String role;
 
-    @Lob
-    @Column(name = "pdf")
-    private byte[] pdf; // LONGBLOB
+    @Column(name = "pdf", length = 500)
+    private String pdf; // PDF 파일 경로
 
     @Column(name = "score")
     private Integer score; // INT
@@ -29,6 +31,7 @@ public class CharInfo {
     @Column(name = "keyword", length = 255)
     private String keyword; // 콤마로 join해서 저장
 
-    @Column(name = "ai_summary", length = 300)
+    @Column(name = "ai_summary", columnDefinition = "LONGTEXT")
     private String aiSummary;
+
 }

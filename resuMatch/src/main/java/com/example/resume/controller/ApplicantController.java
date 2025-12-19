@@ -1,127 +1,108 @@
 package com.example.resume.controller;
 
-import com.example.resume.dto.ApplicantResponseDTO;
+import com.example.resume.dto.ResumeResponseDTO;
 import com.example.resume.entity.CharInfo;
 import com.example.resume.repository.CharInfoRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
 
-import java.util.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = "${app.cors.allowed-origins}")
 @RequestMapping("/api")
 public class ApplicantController {
 
     private final CharInfoRepository repository;
 
-    // 필요하다면 기본 지역/경력 설정값을 application.properties 에서 뺄 수도 있음
-    @Value("${app.default.location:부산}")
-    private String defaultLocation;
-
-    @Value("${app.default.career:신입}")
-    private String defaultCareer;
+    // PDF 저장 폴더 (Service와 동일하게 맞추기)
+    @Value("${app.upload.dir:C:/resume_uploads}")
+    private String uploadDir;
 
     /**
-     * 지원자 목록 조회
-     *  - GET /api/applicants
-     *  - 반환: List<ApplicantResponseDTO>
+     * 전체 지원자(분석 결과) 목록
+     * - URL: GET /api/applicants
      */
     @GetMapping("/applicants")
-    public List<ApplicantResponseDTO> getApplicants() {
-        List<CharInfo> entities = repository.findAll();
+    public List<ResumeResponseDTO> getApplicants() {
+        List<CharInfo> list = repository.findAll();
 
-        // id DESC 정렬 (최근 추가 순)
-        entities.sort(Comparator.comparing(CharInfo::getId).reversed());
+        // 최근 게 위로 오게 (id 기준 내림차순)
+        list.sort(Comparator.comparing(CharInfo::getId).reversed());
 
-        return entities.stream()
-                .map(this::toDto)
+        return list.stream()
+                .map(this::toResumeDto)
                 .collect(Collectors.toList());
-    }
-
-    // ───────────────── private mapping helpers ─────────────────
-
-    private ApplicantResponseDTO toDto(CharInfo entity) {
-
-        // 1) 이름: pdf_name에서 확장자(.pdf) 제거
-        String pdfName = Optional.ofNullable(entity.getPdfName()).orElse("이력서");
-        String name = stripExtension(pdfName);
-
-        // 2) 카테고리: job_role(영문/한글 둘 다 가능)을 한글로 변환
-        String category = toKoreanCategory(entity.getRole());
-
-        // 3) 점수
-        Integer score = entity.getScore() != null ? entity.getScore() : 0;
-
-        // 4) 키워드 → skills.required 로 넣기 (우선 전부 필수 기술로)
-        String keywordString = Optional.ofNullable(entity.getKeyword()).orElse("");
-        List<String> allKeywords = Arrays.stream(keywordString.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
-
-        ApplicantResponseDTO.SkillsDTO skills = ApplicantResponseDTO.SkillsDTO.builder()
-                .required(allKeywords)
-                .preferred(Collections.emptyList())  // 나중에 분리하고 싶으면 여기 로직 추가
-                .tools(Collections.emptyList())
-                .build();
-
-        // 5) 분석/강점: ai_summary 재활용
-        String summary = entity.getAiSummary();
-        String analysis = summary != null ? summary : "AI 분석 결과가 아직 없습니다.";
-        String strengths = summary != null ? summary : "강점 분석 결과가 아직 없습니다.";
-
-        return ApplicantResponseDTO.builder()
-                .id(entity.getId())
-                .name(name)
-                .category(category)
-                .score(score)
-                .location(defaultLocation)
-                .career(defaultCareer)
-                .skills(skills)
-                .analysis(analysis)
-                .strengths(strengths)
-                .build();
-    }
-
-    private String stripExtension(String fileName) {
-        int idx = fileName.lastIndexOf('.');
-        if (idx > 0) {
-            return fileName.substring(0, idx);
-        }
-        return fileName;
     }
 
     /**
-     * DB에 저장된 job_role 값을 한글 카테고리로 매핑
-     *  - frontend / 프론트엔드 → 프론트엔드
-     *  - backend / 백엔드 → 백엔드
-     *  - uiux / 기획자 / UI/UX → 기획자
-     *  - 그 외: 원래 문자열 그대로
+     * 단건 조회
+     * - URL: GET /api/applicants/{id}
      */
-    private String toKoreanCategory(String jobRole) {
-        if (jobRole == null) return "기타";
+    @GetMapping("/applicants/{id}")
+    public ResumeResponseDTO getApplicant(@PathVariable Integer id) {
+        CharInfo entity = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 id: " + id));
 
-        String v = jobRole.trim().toLowerCase();
+        return toResumeDto(entity);
+    }
 
-        switch (v) {
-            case "frontend":
-            case "프론트엔드":
-            case "front-end":
-                return "프론트엔드";
-            case "backend":
-            case "백엔드":
-            case "back-end":
-                return "백엔드";
-            case "uiux":
-            case "ui/ux":
-            case "기획자":
-                return "기획자";
-            default:
-                return jobRole; // 모르는 값이면 있는 그대로 노출
+    /**
+     * PDF 다운로드/보기
+     * - URL: GET /api/applicants/{id}/pdf
+     */
+    @GetMapping("/applicants/{id}/pdf")
+    public ResponseEntity<Resource> downloadPdf(@PathVariable Integer id) {
+        CharInfo entity = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 id: " + id));
+
+        // 현재 ResumeAiService에서 pdf 컬럼에 savedPath.toString() 저장 중
+        String savedPathString = entity.getPdf();
+        if (savedPathString == null || savedPathString.isBlank()) {
+            return ResponseEntity.notFound().build();
         }
+
+        try {
+            Path filePath = Paths.get(savedPathString).toAbsolutePath().normalize();
+            Resource resource = new UrlResource(filePath.toUri());
+
+            if (!resource.exists() || !resource.isReadable()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            String filename = entity.getPdfName() != null ? entity.getPdfName() : "resume.pdf";
+
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "inline; filename=\"" + filename.replace("\"", "") + "\"")
+                    .body(resource);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    private ResumeResponseDTO toResumeDto(CharInfo e) {
+        String pdfUrl = "/api/applicants/" + e.getId() + "/pdf";
+
+        return ResumeResponseDTO.builder()
+                .id(e.getId())
+                .pdfName(e.getPdfName())
+                .role(e.getRole())          // ✅ 여기만 수정 (null → DB값)
+                .score(e.getScore())
+                .keyword(e.getKeyword())
+                .aiSummary(e.getAiSummary())
+                .pdfUrl(pdfUrl)
+                .build();
     }
 }

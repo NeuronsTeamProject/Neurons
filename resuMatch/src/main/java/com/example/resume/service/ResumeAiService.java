@@ -4,98 +4,113 @@ import com.example.resume.dto.ResumeResponseDTO;
 import com.example.resume.entity.CharInfo;
 import com.example.resume.repository.CharInfoRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class ResumeAiService {
 
     private final E5Client e5Client;
+    private final GptClient gptClient;
     private final CharInfoRepository repository;
 
-    /**
-     * 프론트에서 업로드한 이력서를 E5로 분석하고,
-     * 결과를 DB(char_info)에 저장한 뒤, 요약 DTO를 반환.
-     */
+    @Value("${app.upload.dir:C:/resume_uploads}")
+    private String uploadDir;
+
     @Transactional
-    public ResumeResponseDTO analyze(MultipartFile multipartFile, String jobRole) {
+    public ResumeResponseDTO analyzeWithE5(MultipartFile file, String jobRole) {
         try {
-            // 원본 파일명 (없으면 기본값)
-            String originalName = multipartFile.getOriginalFilename();
+            String originalName = file.getOriginalFilename();
             if (originalName == null || originalName.isBlank()) {
                 originalName = "resume.pdf";
             }
 
-            // 1) MultipartFile → 실제 임시 파일로 저장
-            File tempPdf = File.createTempFile("resume-", ".pdf");
-            multipartFile.transferTo(tempPdf);   // 여기서 File 타입 사용
+            Path dir = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Files.createDirectories(dir);
 
-            // 2) E5 Python 모델 호출 (File, jobRole)
-            E5Client.E5Result e5 = e5Client.analyzeResume(tempPdf, jobRole);
+            String safeOriginal = originalName.replaceAll("[\\\\/:*?\"<>|]", "_");
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            String savedName = timestamp + "_" + UUID.randomUUID() + "_" + safeOriginal;
 
-            // 3) DB에 저장할 엔티티 생성
+            Path savedPath = dir.resolve(savedName).normalize();
+            if (!savedPath.startsWith(dir)) {
+                throw new IllegalStateException("허용되지 않은 파일 경로 생성: " + savedPath);
+            }
+
+            file.transferTo(savedPath.toFile());
+
+            // ✅ E5 분석
+            var e5 = e5Client.analyzeResume(savedPath.toFile(), jobRole);
+
+            System.out.println("[DEBUG] e5 class = " + (e5 == null ? "null" : e5.getClass().getName()));
+            System.out.println("[DEBUG] e5 score = " + (e5 == null ? "null" : e5.getScore()));
+            System.out.println("[DEBUG] e5 keyword = " + (e5 == null ? "null" : e5.getKeyword()));
+
+            // ✅ 점수/키워드: E5AnalyzeResponse가 total_sum/matches를 제대로 받으면 여기서 바로 32 나옴
+            Integer score = (e5 == null) ? null : e5.getScore();
+            String keywordString = (e5 == null) ? "" : e5.getKeyword();
+
+            // 안전장치: null이면 0으로 저장(프론트에서 0으로 보이는 걸 확정적으로 컨트롤)
+            if (score == null) score = 0;
+
+            // ✅ GPT 요약
+            String aiSummary = null;
+            try {
+                byte[] pdfBytes = Files.readAllBytes(savedPath);
+                aiSummary = gptClient.summarizePdf(pdfBytes, originalName);
+                aiSummary = trimToUtf8Bytes(aiSummary, 4000);
+            } catch (Exception gptEx) {
+                gptEx.printStackTrace();
+            }
+
+            String keywordForDb = trimToUtf8Bytes(keywordString, 255);
+
             CharInfo entity = CharInfo.builder()
                     .pdfName(originalName)
                     .role(jobRole)
-                    .pdf(multipartFile.getBytes())                 // 바이너리로 저장
-                    .score(e5.getScore())                          // E5 점수
-                    .keyword(trimToLength(e5.getKeyword(), 500))   // 너무 길면 잘라서 저장
-                    // .aiSummary(요약문)  // GPT 요약 붙일 거면 여기 채우면 됨
+                    .pdf(savedPath.toString())
+                    .score(score)
+                    .keyword(keywordForDb)
+                    .aiSummary(aiSummary)
                     .build();
 
             CharInfo saved = repository.save(entity);
 
-            // 4) 임시 파일 정리
-            tempPdf.deleteOnExit();
+            String pdfUrl = "/api/applicants/" + saved.getId() + "/pdf";
 
-            // 5) 프론트로 보낼 DTO 구성
             return ResumeResponseDTO.builder()
                     .id(saved.getId())
                     .pdfName(saved.getPdfName())
-                    .role(saved.getRole())
-                    .score(saved.getScore())
-                    .keywords(saved.getKeyword())
+                    .role(jobRole)
+                    .score(saved.getScore())          // ✅ 이제 여기에 32가 들어감
+                    .keyword(saved.getKeyword())
                     .aiSummary(saved.getAiSummary())
+                    .pdfUrl(pdfUrl)
                     .build();
 
         } catch (Exception e) {
-            throw new RuntimeException("이력서 분석/저장 중 오류: " + e.getMessage(), e);
+            throw new RuntimeException("analyzeWithE5 실패: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * 단건 조회 (선택적으로 사용)
-     */
-    @Transactional(readOnly = true)
-    public ResumeResponseDTO getOne(Integer id) {
-        CharInfo entity = repository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 이력서 ID: " + id));
-
-        return ResumeResponseDTO.builder()
-                .id(entity.getId())
-                .pdfName(entity.getPdfName())
-                .role(entity.getRole())
-                .score(entity.getScore())
-                .keywords(entity.getKeyword())
-                .aiSummary(entity.getAiSummary())
-                .build();
-    }
-
-    /**
-     * UTF-8 기준 바이트 길이로 자르기 (DB 컬럼 길이 맞추려고)
-     */
-    private String trimToLength(String s, int max) {
+    private String trimToUtf8Bytes(String s, int maxBytes) {
         if (s == null) return null;
         byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length <= max) return s;
+        if (bytes.length <= maxBytes) return s;
 
         String truncated = s;
-        while (truncated.getBytes(StandardCharsets.UTF_8).length > max) {
+        while (truncated.length() > 0 && truncated.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
             truncated = truncated.substring(0, truncated.length() - 1);
         }
         return truncated;

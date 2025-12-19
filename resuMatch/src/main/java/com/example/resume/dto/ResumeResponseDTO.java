@@ -4,13 +4,23 @@ import lombok.*;
 
 import java.util.List;
 
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class ResumeResponseDTO {
+
     private Integer id;
+
     private String pdfName;
-    private String role;
-    private Integer score;        // null 가능 (GPT 총평만 한 경우)
-    private String keywords;
+
+    private String role;   // = job_role
+
+    private Integer score;
+
+    private String keyword;
+
     private String aiSummary;
+
+    private String pdfUrl; // 파생 필드 (프론트 편의용)
 }

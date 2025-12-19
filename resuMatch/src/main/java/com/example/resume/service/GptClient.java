@@ -32,10 +32,7 @@ public class GptClient {
             throw new IllegalStateException("OPENAI_API_KEY 환경변수가 필요합니다.");
         }
         try {
-            // 1) 파일 업로드
             String fileId = uploadFile(pdfBytes, fileName);
-
-            // 2) Responses API로 총평 생성 (파일 그대로 참조)
             return createResponseWithFile(fileId);
         } catch (Exception e) {
             throw new RuntimeException("GPT 총평 생성 실패: " + e.getMessage(), e);
@@ -52,7 +49,7 @@ public class GptClient {
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", resource);
-        body.add("purpose", "assistants"); // 파일을 그대로 참조하기 위한 목적
+        body.add("purpose", "assistants");
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -68,7 +65,7 @@ public class GptClient {
     private String createResponseWithFile(String fileId) throws Exception {
         String url = openAiBaseUrl + "/responses";
 
-        // 최신 Responses 포맷(파일 첨부 참조) 예시 페이로드
+        // ✅ content type은 input_text / input_file 로 써야 함
         String payload = """
         {
           "model": "%s",
@@ -76,7 +73,7 @@ public class GptClient {
             {
               "role": "user",
               "content": [
-                {"type": "text", "text": "첨부한 이력서를 읽고, 5~7문장으로 총평을 한국어로 작성해줘. 강점 2가지와 보완점 1가지를 포함해줘."},
+                {"type": "input_text", "text": "첨부한 이력서를 읽고, 5~7문장으로 총평을 한국어로 작성해줘. 강점 2가지와 보완점 1가지를 포함해줘."},
                 {"type": "input_file", "file_id": "%s"}
               ]
             }
@@ -91,20 +88,37 @@ public class GptClient {
         HttpEntity<String> req = new HttpEntity<>(payload, headers);
         ResponseEntity<String> resp = restTemplate.exchange(url, HttpMethod.POST, req, String.class);
 
-        // 응답 본문에서 텍스트 추출 (모델/버전에 따라 경로 다를 수 있어 안전파싱)
         JsonNode root = objectMapper.readTree(resp.getBody());
-        JsonNode output = root.path("output_text");
-        if (!output.isMissingNode() && !output.isNull()) {
-            return output.asText();
+
+        // 1) output_text 필드가 있으면 우선 사용
+        JsonNode outputText = root.path("output_text");
+        if (outputText != null && !outputText.isMissingNode() && !outputText.isNull() && !outputText.asText().isBlank()) {
+            return outputText.asText();
         }
-        // 대안: 첫 메시지 content에서 텍스트 수집
-        JsonNode content = root.path("output").path(0).path("content");
-        if (content.isArray() && content.size() > 0) {
-            // content[0].text.value 형태를 시도
-            JsonNode t = content.get(0).path("text").path("value");
-            if (!t.isMissingNode()) return t.asText();
+
+        // 2) output 배열 안에서 content[].type == "output_text" 를 찾아 text 뽑기
+        JsonNode outputArr = root.path("output");
+        if (outputArr.isArray()) {
+            for (JsonNode msg : outputArr) {
+                JsonNode contentArr = msg.path("content");
+                if (!contentArr.isArray()) continue;
+
+                for (JsonNode c : contentArr) {
+                    String type = c.path("type").asText("");
+                    if ("output_text".equals(type)) {
+                        String text = c.path("text").asText("");
+                        if (!text.isBlank()) return text;
+                    }
+                    // 혹시 구조가 text.value로 오는 경우 대비
+                    JsonNode v = c.path("text").path("value");
+                    if (!v.isMissingNode() && !v.isNull() && !v.asText().isBlank()) {
+                        return v.asText();
+                    }
+                }
+            }
         }
-        // 실패 시 원문 반환
-        return resp.getBody();
+
+        // ❌ 절대 원본 JSON을 그대로 반환하지 말자(프론트에 저렇게 찍힘)
+        return "GPT 응답에서 요약 텍스트를 추출하지 못했습니다.";
     }
 }
